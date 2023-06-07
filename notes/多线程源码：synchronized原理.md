@@ -1,14 +1,24 @@
 ## 多线程源码：synchronized原理
 
-### 1、synchronized
-
-#### （1）简介
+### 1、synchronized简介
 
 synchronized是Java的一个关键字，是一种互斥锁。来自官方的解释：Synchronized方法支持一种简单的策略，用于防止线程干扰和内存一致性错误：如果一个对象对多个线程可见，则对该对象变量的所有读或写操作都通过Synchronized方法完成。
 
 **Synchronized是最基本的互斥手段**，保证同一时刻最多只有1个线程执行被Synchronized修饰的方法 / 代码，其他线程 必须等待当前线程执行完该方法 / 代码块后才能执行该方法 / 代码块。
 
-* **特性**
+在JDK1.5之前synchronized是一个重量级锁，相对于j.u.c.Lock，它会显得那么笨重，随着Javs SE 1.6对synchronized进行的各种优化后，synchronized并不会显得那么重了。
+
+* **什么是锁？**
+
+  锁的本质就是一个对象，当多个线程争抢同个锁的时，同一时间内只会有一个线程获取锁，只有获取锁的线程才能执行锁内的代码，其他线程执行到锁代码时会进入阻塞状态，等待锁释放后进行争抢。synchronized就是一种常见的锁。
+
+  是异步还是同步主要就是看synchronized是不是同一把锁。
+
+  如果是同一把锁，那么就是同步执行
+
+  如果不是同一把锁，那么就是异步执行
+
+* **作用，特性**
 
   Synchronized保证同一时刻有且只有一条线程在操作共享数据，其他线程必须等待该线程处理完数据后再对共享数据进行操作。此时便产生了互斥锁，互斥锁的特性如下：
 
@@ -17,76 +27,134 @@ synchronized是Java的一个关键字，是一种互斥锁。来自官方的解�
   **可见性：**一个线程修改的共享变量，其他线程是否能够立刻看到。对于串行程序而言，并不存在可见性问题，前一个操作修改的变量，后一个操作一定能读取到最新值。但在多线程环境下如果没有正确的同步则不一定。
 
   **有序性：**代码最终执行的顺序与我们看到的代码的顺序一致。串行执行。多线程下可能会发生指令重排，后面的操作反而先执行。
+  
+* **使用**
+
+  - 修饰实例方法：作用于当前实例加锁
+  - 修饰静态方法：作用于当前类加锁
+  - 修饰代码块：指定加锁对象，对给定对象加锁
+
+  作用范围不同，粒度不同，用于不同的场景。
+
+* **线程安全问题**
+
+  变量在多线程情况下会出现安全性问题，安全性问题指的是多个线程同时访问同一个变量时，会发生混乱，如果都改变了变量的值，可能与最终想要的结果不同。
+
+  触发线程安全问题的前置条件是：多线程，有**共享变量**，有线程安全性问题（实例变量），**局部变量**没有线程安全性问题。
+
+  共享变量：不安全
+
+  局部变量：安全
+
+  ```java
+  public class Sync1 {
+  
+      private int num = 0;
+  
+      public static void main(String[] args) {
+          final Sync1 sync1 = new Sync1();
+          new Thread(() -> {
+              sync1.addNum(1);
+          }, "thread1").start();
+  
+          new Thread(() -> {
+              sync1.addNum(2);
+          }, "thread2").start();
+      }
+  
+      public void addNum(int i) {
+          if (i == 1) {
+              num = 100;
+          } else {
+              num = 200;
+          }
+          /**
+           * 正常情况：
+           * current thread->thread1,i->1,num->100
+           * current thread->thread2,i->2,num->200
+           * 异常情况：
+           * current thread->thread1,i->1,num->100
+           * current thread->thread2,i->2,num->100
+           * <p> 
+           * current thread->thread1,i->1,num->200
+           * current thread->thread2,i->2,num->200
+           */
+          System.out.println("current thread->" + Thread.currentThread().getName() + ",i->" + i + ",num->" + num);
+      }
+  }
+  ```
+
+  以上代码中的num变量就是不安全的，两个线程同时操作时，会出现安全性问题。
+
+  原因其实很简单，就是因为num还没被读取，就又被再次重新赋值了。
+
+  上述代码中每一个线程都执行了两个指令：
+
+  线程1： 1、num=100；2、read num打印。
+
+  线程2： 3、num=200；4、read num打印。
+
+  当指令顺序为 1 2 3 4，结果就是正常情况
+
+  但是因为是多线程，所以指令是会交替进行的
+
+  当指令顺序为 1 3 4 2，结果是num都为200
+
+  当指令顺序为 3 1 2 4，结果是num都为100
+
+  
+
+  **上述情况中属于有序性问题，但是无法使用volatile解决，因为volatile只能保证对num的读写不会重排序，也就是说只能保证1、2不被重排序，3、4不被重排序，无法保证1、2之间不会被插入3。**并且1、2之间是有关联的，本身就不会被重排序，所以这里加volatile是没有任何作用的。
+
+  可以使用synchronized修饰addNum方法，当进入一个synchronized获取了锁之后，另一个线程再次获取时就必须等待解锁，锁里的代码是串行化的，所以可以解决上述问题。
 
 
 
-#### （2）线程安全问题
+### 2、synchronized实现原理
 
-变量在多线程情况下会出现安全性问题，安全性问题指的是多个线程同时访问同一个变量时，会发生混乱，如果都改变了变量的值，可能与最终想要的结果不同。
+Synchronized的语义底层是通过一个monitor（监视器锁）的对象来完成。线程访问加锁对象，就是去拥有一个监视器（Monitor）的过程。
 
-触发线程安全问题的前置条件是：多线程，有**共享变量**，有线程安全性问题（实例变量），**局部变量**没有线程安全性问题。
+　　每个对象有一个监视器锁(monitor)。每个Synchronized修饰过的代码当它的monitor被占用时就会处于锁定状态并且尝试获取monitor的所有权 ，过程：
 
-共享变量：不安全
+　　1）如果monitor的进入数为0，则该线程进入monitor，然后将进入数设置为1，该线程即为monitor的所有者；
 
-局部变量：安全
+　　2）如果线程已经占有该monitor，只是重新进入，则进入monitor的进入数加1（可重入）；
 
-```java
-public class Sync1 {
+　　3）如果其他线程已经占用了monitor，则该线程进入阻塞状态，直到monitor的进入数为0，再重新尝试获取monitor的所有权。
 
-    private int num = 0;
+* **字节码解析**
 
-    public static void main(String[] args) {
-        final Sync1 sync1 = new Sync1();
-        new Thread(() -> {
-            sync1.addNum(1);
-        }, "thread1").start();
+  * **同步方法**
 
-        new Thread(() -> {
-            sync1.addNum(2);
-        }, "thread2").start();
-    }
+    方法级的同步是隐式的，无须通过字节码指令来控制，JVM可以从方法常量池的方法表结构中的ACC_SYNCHRONIZED访问标志得知一个方法是否声明为同步方法。
 
-    public void addNum(int i) {
-        if (i == 1) {
-            num = 100;
-        } else {
-            num = 200;
-        }
-        /**
-         * 正常情况：
-         * current thread->thread1,i->1,num->100
-         * current thread->thread2,i->2,num->200
-         * 异常情况：
-         * current thread->thread1,i->1,num->100
-         * current thread->thread2,i->2,num->100
-         * <p> 
-         * current thread->thread1,i->1,num->200
-         * current thread->thread2,i->2,num->200
-         */
-        System.out.println("current thread->" + Thread.currentThread().getName() + ",i->" + i + ",num->" + num);
-    }
-}
-```
+    当方法调用的时，调用指令会检查方法的ACC_SYNCHRONIZED访问标志是否被设置。如果设置了，执行线程就要求先持有monitor对象，然后才能执行方法，最后当方法执行完（无论是正常完成还是非正常完成）时释放monitor对象。
 
-以上代码中的num变量就是不安全的，两个线程同时操作时，会出现安全性问题。
+    在方法执行期间，执行线程持有了管程，其他线程都无法再次获取同一个管程。
 
-原因其实很简单，就是因为num还没被读取，就又被再次重新赋值了。
+    *管程是一种概念，任何语言都可以通用。在java中，管程==Monitor*
 
-上述代码中每一个线程都执行了两个指令：
+  * **同步代码块**
 
-线程1： 1、num=100；2、read num打印。
+    同步代码块，synchronized关键字经过编译之后，会在同步代码块前后分别形成monitorenter和monitorexit字节码指令。在执行monitorenter指令的时候，首先尝试获取对象的锁。
 
-线程2： 3、num=200；4、read num打印。
+    如果这个锁没有被锁定或者当前线程已经拥有了那个对象的锁，锁的计数器就加1。在执行monitorexit指令时会将锁的计数器减1，当减为0的时候就释放锁。如果获取对象锁一直失败，那当前线程就要阻塞等待，直到对象锁被另一个线程释放为止。
 
-当指令顺序为 1 2 3 4，结果就是正常情况
+* **Monitor**
 
-但是因为是多线程，所以指令是会交替进行的
+  
 
-当指令顺序为 1 3 4 2，结果是num都为200
+* **锁重入**
 
-当指令顺序为 3 1 2 4，结果是num都为100
+  synchronized是可重入锁，进入一个A锁的代码块或方法之后，又在代码块内遇到A锁，还可以继续进入A锁。每次进入A锁都会将monitorenter+1，每次释放A锁会将monitorexit-1，当monitorCount==0时，代表当前线程完全退出锁，其他线程可开始争抢锁。
 
+  重入锁一定要注意，在锁嵌套的时候，所有嵌套的方法签名上一定要加synchronized关键字，否则其他线程在调用无synchronized关键字的方法时就无需争抢锁。
 
+  * 继承时锁重入
 
-**上述情况中属于有序性问题，但是无法使用volatile解决，因为volatile只能保证对num的读写不会重排序，也就是说只能保证1、2不被重排序，3、4不被重排序，无法保证1、2之间不会被插入3。**并且1、2之间是有关联的，本身就不会被重排序，所以这里加volatile是没有任何作用的。
+    在继承关系下锁重入机制也是可行的，可以直接调用，不需要等待，这就是synchronized 父子类锁重入 。因为子类继承了父类实际上就是拥有了父类的public方法，所有父类的public 方法也属于子类对象。同一个对象拥有了同一把锁，不需要竞争。
+
+* **synchronized修饰的方法如果发生异常锁怎么办？会释放吗？**
+
+  发生异常后会释放锁。假设两个方法都是有synchronized修饰的，其中一个发生异常了，jvm会在发生异常之后自动释放锁，让另一个方法获取锁并执行。在JVM底层中当线程在获取锁的状态下发生了异常，jvm会自动调用monitorExit来释放锁。
 
