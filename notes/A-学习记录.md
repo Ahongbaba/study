@@ -99,3 +99,15 @@ ACID事务理论、微服务康威定律
 深入多线程82-89：synchronized实现原理、字节码解析、锁重入
 
 parallerStream原理：fork-join线程池，分治思想处理任务，拆分子任务-合并
+
+### 2023.6.8
+
+泛型类型擦除学习
+
+听龙飞分享：oauto2 授权
+
+Java全栈知识网站：es相关知识复习
+
+对线面试官网站：注解、java nio、反射
+
+volatile和synchronized有序性区别探究
