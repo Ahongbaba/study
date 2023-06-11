@@ -121,7 +121,7 @@ synchronized是Java的一个关键字，**是一种互斥锁**。来自官方的
 
 
 
-### 2、锁相关知识
+### 2、锁基础知识
 
 * **什么是锁？**
 
@@ -292,7 +292,64 @@ Synchronized的语义底层是通过一个monitor（监视器锁）的对象来�
 
     如果这个锁没有被锁定或者当前线程已经拥有了那个对象的锁，锁的计数器就加1。在执行monitorexit指令时会将锁的计数器减1，当减为0的时候就释放锁。如果获取对象锁一直失败，那当前线程就要阻塞等待，直到对象锁被另一个线程释放为止。
 
-* **Monitor**
+* **对象头**
+
+  锁的本质：串行来访问共享资源。实际上同步互斥访问（多个线程来争取一个**对象**）
+
+  new Object()---->对象最终是丢给jvm来管理----》jvm会在对象上加一些管理信息
+
+  jvm包装完之后：
+
+  1）**对象头（重点）**
+
+  2）实例数据
+
+  3）填充数据
 
   
+
+  32位对象头：
+
+  ![image-20210416112302935](https://gitee.com/ahongbaba/note-picture/raw/master/img/20230611205402.png)
+
+  64位对象头：
+
+  ![image-20210710192940782](https://gitee.com/ahongbaba/note-picture/raw/master/img/20230611205716.png)
+
+  上图是jvm对象头的信息，jdk1.6之前就是用的monitor（操作系统底层的互斥锁），是重量级锁，需要在用户态和内核态之间做切换，性能较差。在jdk1.6之后，synchronized不再直接加上monitor重量级锁，而是从偏向锁->轻量级锁->重量级锁一步步加锁，提升性能。
+
+* **Monitor**
+
+  无论是synchronized代码块还是synchronized方法，其线程安全的语义实现最终依赖于monitor。
+
+  在[HotSpot](https://so.csdn.net/so/search?q=HotSpot&spm=1001.2101.3001.7020)虚拟机中，monitor是由ObjectMonitor实现的。源码由C++实现，位于HotSpot虚拟机源码ObjectMonitor.hpp文件中(src/share/vm/runtime/objectMonitor.hpp)。ObjectMonitor主要数据结构如下：
+
+  ![image-20230611210159842](https://gitee.com/ahongbaba/note-picture/raw/master/img/20230611210200.png)
+
+  三大队列：cxq、entryList、waitSet
+
+  - _owner: 初始时为NULL。当有线程占有该monitor时，owner标记为该线程的唯一标识。当线程释放monitor时，owner又恢复为NULL。owner是一个临界资源，JVM是通过CAS操作来保证其线程安全。**owner指向一个线程，被指向的线程就是抢到锁**。owner字段非常繁忙，因为大家都想把自己赋值给它。
+  - _cxq: 竞争队列，所有请求锁的线程首先会被放在这个队列中(单向列表)。cxq是一个临界资源，JVM通过CAS原子指令来修改cxq队列。修改前cxq的旧值填入了node的next字段，cxq指向新值(新线程)。因此cxq是一个后进先出的stack（栈）。
+  - _EntryList：cxq队列中有资格成为候选资源的线程会被移动到该队列中。
+  - _WaitSet：因为调用wait方法而被阻塞的线程会被放在该队列中。
+
+* **重量级锁**
+
+  重量级锁是jvm的最后一个锁策略，当经历了偏向锁、轻量级锁都无法使用时才会使用重量级锁。
+
+  重量级锁的性能很差，**它性能差是由于上下文切换**。当线程挂起（进入blocked状态）时，调用内核函数挂起。当线程唤醒时也会调用内核函数，所以这两个操作就存在用户态->内核态之间的切换。jvm属于用户态，想要调用操作系统函数，就需要切换到内核态。
+
+  
+
+  线程挂起：park（操作系统指令）--->pthread_cond_wait()--->object.wait()
+
+  线程唤醒：unpark（操作系统指令）--->pthread_cond_singal()--->object.notify()
+
+  重量级锁性能差的关键就是内核态用户态的切换。所以在JVM源码中，即使已经进入了执行重量级锁的方法，也进行了多次CAS，通过自旋获取monitor，尽量避免线程挂起。
+
+  当一系列CAS还是抢不到锁时，执行ObjectWaiter方法，进入cxq队列。cxq队列是一个先进后出的栈结构，线程会尝试入队争抢头部节点，如果争抢失败，就又进行CAS获取锁试试，没抢到就再尝试入队抢头部，循环。
+
+  进入到cxq队列之后，就是要执行阻塞挂起操作了，这时又会先CAS获取锁试试（不死心啊），如果获取不到，那就没办法了，只能调用park，挂起。挂起后就阻塞住了，需要等待调用unpark方法。
+
+  当前拥有锁的线程释放锁之后，会将owner指向空，此时就会调用unpark方法，重新循环获取锁。
 
