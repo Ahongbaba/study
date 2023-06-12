@@ -33,7 +33,7 @@ public class MySynchronized {
      */
     private void inflateEnter() {
         ObjectMonitor objectMonitor = inflate();
-        objectMonitor.enter();
+        objectMonitor.enter(new MyLock());
     }
 
     /**
