@@ -1,4 +1,4 @@
-package com.hong.thread;
+package com.hong.thread.sync;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;

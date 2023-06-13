@@ -1,5 +1,6 @@
-package com.hong.thread;
+package com.hong.thread.sync;
 
+import com.hong.thread.MyUnsafe;
 import lombok.Data;
 import sun.misc.Unsafe;
 

@@ -1,5 +1,6 @@
-package com.hong.thread;
+package com.hong.thread.sync;
 
+import com.hong.thread.sync.MarkWord;
 import lombok.Data;
 
 @Data
