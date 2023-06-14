@@ -47,6 +47,11 @@ public class MarkWord implements Cloneable {
      */
     private ObjectMonitor ptrMonitor = null;
 
+    /**
+     * 锁膨胀状态
+     */
+    private volatile String status = null;
+
     @Override
     public MarkWord clone() {
         try {

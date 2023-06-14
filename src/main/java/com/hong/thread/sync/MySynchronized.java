@@ -103,10 +103,47 @@ public class MySynchronized {
      * @return objectMonitor
      */
     private ObjectMonitor inflate() {
-        // 具体膨胀过程待实现
-        ObjectMonitor objectMonitor = new ObjectMonitor();
+        for (; ; ) {
+            MarkWord markWord = myLock.getMarkWord();
+            ObjectMonitor ptrMonitor = markWord.getPtrMonitor();
+            // 1、如果已经膨胀完毕（已经生成了内置锁：ObjectMonitor）
+            if (ptrMonitor != null) {
+                return ptrMonitor;
+            }
 
-        return objectMonitor;
+            // 2、正在膨胀中
+            String status = markWord.getStatus();
+            if ("inflating".equals(status)) {
+                continue;
+            }
+
+            // 3、当前是轻量级锁
+            LockRecord ptrLockRecord = markWord.getPtrLockRecord();
+            String lockFlag = markWord.getLockFlag();
+            if ("00".equals(lockFlag) && ptrLockRecord != null) {
+                // cas自旋更改markWord状态
+                Unsafe unsafe = MyUnsafe.getUnsafe();
+                Field statusField;
+                try {
+                    statusField = markWord.getClass().getDeclaredField("status");
+                } catch (NoSuchFieldException e) {
+                    throw new RuntimeException(e);
+                }
+                assert unsafe != null;
+                long offset = unsafe.objectFieldOffset(statusField);
+                Object objectVolatile = unsafe.getObjectVolatile(markWord, offset);
+                boolean isOk = unsafe.compareAndSwapObject(markWord, offset, objectVolatile, "inflating");
+                if (isOk) {
+                    // 更新成功
+                    ObjectMonitor objectMonitor = new ObjectMonitor();
+                    markWord.setPtrMonitor(objectMonitor);
+                    markWord.setLockFlag("10");
+                    markWord.setLockRecord(null);
+
+                    return objectMonitor;
+                }
+            }
+        }
     }
 
     /**
