@@ -39,12 +39,22 @@ public class ObjectMonitor {
         }
 
         // 3、从轻量级锁膨胀
-
+        LockRecord lockRecord = MySynchronized.threadLocal.get();
+        MarkWord head = lockRecord.getMarkWord();
+        if (head != null) {
+            recursions = 1;
+            owner = Thread.currentThread();
+            return;
+        }
 
         // 4、预备入队挂起
         enterI(myLock);
     }
 
+    /**
+     * 真正开始入队挂起
+     * @param myLock myLock
+     */
     private void enterI(MyLock myLock) {
         // 自旋抢锁
         if (tryLock(myLock) > 0) {
@@ -83,7 +93,7 @@ public class ObjectMonitor {
             }
             Unsafe unsafe = MyUnsafe.getUnsafe();
             assert unsafe != null;
-            // 挂起后线程卡在此处，等待唤醒
+            // 挂起进入内核态，挂起后线程卡在此处，等待唤醒
             unsafe.park(false, 0L);
 
             // 唤醒后立马抢锁
@@ -93,6 +103,12 @@ public class ObjectMonitor {
         }
     }
 
+    /**
+     * 自旋抢锁
+     *
+     * @param myLock myLock
+     * @return 1=成功 0和-1=失败
+     */
     private int tryLock(MyLock myLock) {
         for (int i = 0; i < 10; i++) {
             // 如果有线程还拥有重量级锁，直接退出

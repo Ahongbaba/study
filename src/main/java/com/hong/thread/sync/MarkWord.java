@@ -24,7 +24,7 @@ public class MarkWord implements Cloneable {
 
     private String epoch;
 
-    private long threadId = -1;
+    private volatile long threadId = -1;
 
     /**
      * 指向轻量级锁的指针

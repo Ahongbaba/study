@@ -9,11 +9,20 @@ public class MySynchronized {
 
     static MyLock myLock = new MyLock();
 
+    /**
+     * 是否开启偏向
+     */
+    private boolean useBiasedLocking = true;
+
+    /**
+     * 偏向锁对象
+     */
+    static BiasedLocking biasedLocking = new BiasedLocking();
+
     static ThreadLocal<LockRecord> threadLocal = ThreadLocal.withInitial(() -> {
         // 使用内部类初始化
-        MarkWord markWord = myLock.getMarkWord();
         MarkWord owner = null;
-        MarkWord markWordClone = markWord.clone();
+        MarkWord markWordClone = null;
 
         return new LockRecord(markWordClone, owner);
     });
@@ -26,13 +35,91 @@ public class MySynchronized {
          * 锁升级后续实现
          * 无锁->偏向锁->轻量级锁->重量级锁
          */
-        if (false) {
+        if (useBiasedLocking) {
             // 偏向锁
-
+            fastEnter();
         } else {
             // 轻量级锁
             slowEnter();
         }
+    }
+
+    /**
+     * 释放锁入口
+     */
+    public void monitorExit() {
+        MarkWord markWord = myLock.getMarkWord();
+        String biasedLock = markWord.getBiasedLock();
+        String lockFlag = markWord.getLockFlag();
+        long threadId = markWord.getThreadId();
+        Thread currentThread = Thread.currentThread();
+
+        if ("1".equals(biasedLock) && "01".equals(lockFlag)) {
+            // 偏向锁状态
+            if (threadId != currentThread.getId()) {
+                // 释放锁的不是拥有锁的线程，报错
+                throw new RuntimeException("非法释放锁");
+            }
+        } else {
+            // 轻量级锁和重量级锁的释放
+            slowExit(markWord);
+        }
+    }
+
+    /**
+     * 轻量级锁和重量级锁的释放
+     */
+    private void slowExit(MarkWord markWord) {
+        fastExit(markWord);
+    }
+
+    /**
+     * 轻量级锁的释放
+     */
+    private void fastExit(MarkWord markWord) {
+        // 需要将markWord还原：markWord替换（cas替换），lockFlag改成01
+        LockRecord lockRecord = threadLocal.get();
+        // 当前栈帧中的markWord(head),还原到对象头中
+        MarkWord head = lockRecord.getMarkWord();
+        if (head != null) {
+            // cas变更markWord
+            Unsafe unsafe = MyUnsafe.getUnsafe();
+            Field markWordField;
+            try {
+                markWordField = myLock.getClass().getDeclaredField("markWord");
+            } catch (NoSuchFieldException e) {
+                throw new RuntimeException(e);
+            }
+            assert unsafe != null;
+            long offset = unsafe.objectFieldOffset(markWordField);
+            Object objectVolatile = unsafe.getObjectVolatile(myLock, offset);
+            boolean isOk = unsafe.compareAndSwapObject(myLock, offset, objectVolatile, head);
+            if (isOk) {
+                // head = null
+                lockRecord.setMarkWord(null);
+                lockRecord.setOwner(null);
+                markWord.setLockFlag("01");
+                return;
+            }
+            // cas修改失败，轻量级锁膨胀
+            inflateExit();
+        }
+    }
+
+    /**
+     * 偏向锁加锁
+     */
+    private void fastEnter() {
+        if (useBiasedLocking) {
+            boolean isOk = biasedLocking.revokeAndRebias(myLock);
+            if (isOk) {
+                // 偏向锁加锁成功，可以执行代码块了
+                return;
+            }
+        }
+
+        // 偏向锁加锁失败，走轻量级锁
+        slowEnter();
     }
 
 
@@ -64,6 +151,8 @@ public class MySynchronized {
             boolean isOk = unsafe.compareAndSwapObject(markWord, offset, currentLockRecord, lockRecord);
             if (isOk) {
                 // 成功，设置成轻量级锁
+                MarkWord markWordClone = markWord.clone();
+                lockRecord.setMarkWord(markWordClone);
                 markWord.setLockFlag("00");
                 lockRecord.setOwner(markWord);
                 return;
@@ -95,6 +184,15 @@ public class MySynchronized {
     private void inflateEnter() {
         ObjectMonitor objectMonitor = inflate();
         objectMonitor.enter(new MyLock());
+    }
+
+    /**
+     * 退出时膨胀
+     */
+    private void inflateExit() {
+        ObjectMonitor objectMonitor = inflate();
+        // 重量级锁释放
+//        objectMonitor.exit();
     }
 
     /**
@@ -146,10 +244,4 @@ public class MySynchronized {
         }
     }
 
-    /**
-     * 释放锁
-     */
-    public void monitorExit() {
-
-    }
 }
