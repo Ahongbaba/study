@@ -53,6 +53,7 @@ public class ObjectMonitor {
 
     /**
      * 真正开始入队挂起
+     *
      * @param myLock myLock
      */
     private void enterI(MyLock myLock) {
@@ -146,5 +147,60 @@ public class ObjectMonitor {
         }
 
         return objectMonitor.getOwner();
+    }
+
+    /**
+     * 重量级锁退出
+     *
+     * @param myLock myLock
+     */
+    public void exit(MyLock myLock) {
+        // 流程图里没画这步，判断当前线程和owner是否相等，不等的情况下如果是轻量级锁升级来的则设置owner，否则就是非法释放
+        Thread currentThread = Thread.currentThread();
+        if (owner != currentThread) {
+            LockRecord lockRecord = MySynchronized.threadLocal.get();
+            MarkWord head = lockRecord.getMarkWord();
+            if (head != null) {
+                // 从轻量级锁升级而来
+                owner = currentThread;
+                recursions = 0;
+            } else {
+                // 非法释放
+                throw new RuntimeException("不是锁的拥有者，无权释放该锁");
+            }
+        }
+
+        // 如果recursions不为0，说明重入了，自减
+        if (recursions != 0) {
+            recursions--;
+            return;
+        }
+
+        // 开始选择唤醒模式，此处只写QMode==2
+        // 触发屏障，让各个线程工作内存可见
+        MyUnsafe.getUnsafe();
+        // 从队列里获取一个线程准备唤醒
+        ObjectWaiter objectWaiter = cxq.poll();
+        if (objectWaiter != null) {
+            exitEpilog(myLock, objectWaiter);
+        }
+    }
+
+    /**
+     * 唤醒线程
+     *
+     * @param myLock       myLock
+     * @param objectWaiter objectWaiter
+     */
+    private void exitEpilog(MyLock myLock, ObjectWaiter objectWaiter) {
+        // 丢弃锁，将owner置为null
+        MarkWord markWord = myLock.getMarkWord();
+        markWord.getPtrMonitor().setOwner(null);
+        // 获取线程唤醒
+        Thread thread = objectWaiter.getThread();
+        Unsafe unsafe = MyUnsafe.getUnsafe();
+        assert unsafe != null;
+        unsafe.unpark(thread);
+        markWord.setPtrMonitor(null);
     }
 }

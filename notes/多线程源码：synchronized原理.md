@@ -330,7 +330,7 @@ Synchronized的语义底层是通过一个monitor（监视器锁）的对象来�
 
   - _owner: 初始时为NULL。当有线程占有该monitor时，owner标记为该线程的唯一标识。当线程释放monitor时，owner又恢复为NULL。owner是一个临界资源，JVM是通过CAS操作来保证其线程安全。**owner指向一个线程，被指向的线程就是抢到锁**。owner字段非常繁忙，因为大家都想把自己赋值给它。
   - _cxq: 竞争队列，所有请求锁的线程首先会被放在这个队列中(单向列表)。cxq是一个临界资源，JVM通过CAS原子指令来修改cxq队列。修改前cxq的旧值填入了node的next字段，cxq指向新值(新线程)。因此cxq是一个后进先出的stack（栈）。
-  - _EntryList：cxq队列中有资格成为候选资源的线程会被移动到该队列中。
+  - _EntryList：cxq队列中有资格成为候选资源的线程会被移动到该队列中。（重量级锁退出时会将cxq队列里的线程移动到这里）
   - _WaitSet：因为调用wait方法而被阻塞的线程会被放在该队列中。
 
   ![image-20230613211708984](https://gitee.com/ahongbaba/note-picture/raw/master/img/20230613211710.png)
@@ -379,6 +379,10 @@ Synchronized的语义底层是通过一个monitor（监视器锁）的对象来�
 
     ![image-20230626213124465](https://gitee.com/ahongbaba/note-picture/raw/master/img/20230626213125.png)
 
+  * 重量级锁退出流程图
+
+    ![image-20230627204531608](https://gitee.com/ahongbaba/note-picture/raw/master/img/20230627204533.png)
+
 * **轻量级锁**
 
   真正进入重量级锁之前会有多次CAS，CAS失败的很大部分原因是由于owner的竞争过于激烈，导致CAS失败。只要让竞争不那么激烈，就能让CAS成功的概率提升。这就是轻量级锁。
@@ -418,6 +422,14 @@ Synchronized的语义底层是通过一个monitor（监视器锁）的对象来�
   * 轻量级锁释放流程图
 
     ![image-20230626212919425](https://gitee.com/ahongbaba/note-picture/raw/master/img/20230626212920.png)
+    
+    * 上图中cas将head写回对象头，为什么需要cas来撤销，而且会撤销失败？
+    
+      如果当前锁是轻量级锁，确实只会有一个线程操作，但是此时锁是有可能已经被膨胀为重量级锁的。
+    
+      线程t1获取了轻量级锁，markword指向t1所在在栈帧，此时t2也来请求锁，此时拿不到锁，那么就会升 级膨胀为重量级锁，就把markword更新为ObjectMonitor指针。此时t1线程在退出的时候准备将markword还原，那么此时就会失败。t1只能膨胀为重量级锁退出。
+    
+      
 
 * **偏向锁**
 

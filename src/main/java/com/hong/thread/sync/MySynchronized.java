@@ -191,8 +191,8 @@ public class MySynchronized {
      */
     private void inflateExit() {
         ObjectMonitor objectMonitor = inflate();
-        // 重量级锁释放
-//        objectMonitor.exit();
+        // 重量级锁退出
+        objectMonitor.exit(myLock);
     }
 
     /**
