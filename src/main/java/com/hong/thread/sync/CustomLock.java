@@ -1,10 +1,9 @@
 package com.hong.thread.sync;
 
-import com.hong.thread.sync.MarkWord;
 import lombok.Data;
 
 @Data
-public class MyLock {
+public class CustomLock {
 
     private MarkWord markWord;
 }

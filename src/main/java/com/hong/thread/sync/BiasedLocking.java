@@ -13,11 +13,11 @@ public class BiasedLocking {
     /**
      * 偏向锁加锁
      *
-     * @param myLock myLock
+     * @param customLock myLock
      * @return 成功/失败
      */
-    public boolean revokeAndRebias(MyLock myLock) {
-        MarkWord markWord = myLock.getMarkWord();
+    public boolean revokeAndRebias(CustomLock customLock) {
+        MarkWord markWord = customLock.getMarkWord();
         long threadId = markWord.getThreadId();
         // 获取偏向锁标记
         String biasedLock = markWord.getBiasedLock();
@@ -53,7 +53,7 @@ public class BiasedLocking {
             }
             // 已偏向的不是当前线程，撤销偏向锁
             // 这里需要判断线程是否已经执行完同步代码块，在java层面很难判断
-            return revokeBiased(myLock);
+            return revokeBiased(customLock);
         }
 
         return false;
@@ -67,9 +67,9 @@ public class BiasedLocking {
      *
      * @return true=撤销成无锁/false=升级成轻量级锁
      */
-    private boolean revokeBiased(MyLock myLock) {
+    private boolean revokeBiased(CustomLock customLock) {
         boolean isAlive = false;
-        MarkWord markWord = myLock.getMarkWord();
+        MarkWord markWord = customLock.getMarkWord();
         long threadId = markWord.getThreadId();
 
         ThreadGroup threadGroup = Thread.currentThread().getThreadGroup();

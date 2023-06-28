@@ -7,7 +7,7 @@ import java.lang.reflect.Field;
 
 public class MySynchronized {
 
-    static MyLock myLock = new MyLock();
+    static CustomLock customLock = new CustomLock();
 
     /**
      * 是否开启偏向
@@ -48,7 +48,7 @@ public class MySynchronized {
      * 释放锁入口
      */
     public void monitorExit() {
-        MarkWord markWord = myLock.getMarkWord();
+        MarkWord markWord = customLock.getMarkWord();
         String biasedLock = markWord.getBiasedLock();
         String lockFlag = markWord.getLockFlag();
         long threadId = markWord.getThreadId();
@@ -86,14 +86,14 @@ public class MySynchronized {
             Unsafe unsafe = MyUnsafe.getUnsafe();
             Field markWordField;
             try {
-                markWordField = myLock.getClass().getDeclaredField("markWord");
+                markWordField = customLock.getClass().getDeclaredField("markWord");
             } catch (NoSuchFieldException e) {
                 throw new RuntimeException(e);
             }
             assert unsafe != null;
             long offset = unsafe.objectFieldOffset(markWordField);
-            Object objectVolatile = unsafe.getObjectVolatile(myLock, offset);
-            boolean isOk = unsafe.compareAndSwapObject(myLock, offset, objectVolatile, head);
+            Object objectVolatile = unsafe.getObjectVolatile(customLock, offset);
+            boolean isOk = unsafe.compareAndSwapObject(customLock, offset, objectVolatile, head);
             if (isOk) {
                 // head = null
                 lockRecord.setMarkWord(null);
@@ -111,7 +111,7 @@ public class MySynchronized {
      */
     private void fastEnter() {
         if (useBiasedLocking) {
-            boolean isOk = biasedLocking.revokeAndRebias(myLock);
+            boolean isOk = biasedLocking.revokeAndRebias(customLock);
             if (isOk) {
                 // 偏向锁加锁成功，可以执行代码块了
                 return;
@@ -130,7 +130,7 @@ public class MySynchronized {
         // 这里有很多逻辑，先不写
 
         // 如果是偏向锁或者无锁状态 lockFlag=01
-        MarkWord markWord = myLock.getMarkWord();
+        MarkWord markWord = customLock.getMarkWord();
         String lockFlag = markWord.getLockFlag();
         if ("01".equals(lockFlag)) {
             markWord.setThreadId(-1);
@@ -183,7 +183,7 @@ public class MySynchronized {
      */
     private void inflateEnter() {
         ObjectMonitor objectMonitor = inflate();
-        objectMonitor.enter(new MyLock());
+        objectMonitor.enter(new CustomLock());
     }
 
     /**
@@ -192,7 +192,7 @@ public class MySynchronized {
     private void inflateExit() {
         ObjectMonitor objectMonitor = inflate();
         // 重量级锁退出
-        objectMonitor.exit(myLock);
+        objectMonitor.exit(customLock);
     }
 
     /**
@@ -202,7 +202,7 @@ public class MySynchronized {
      */
     private ObjectMonitor inflate() {
         for (; ; ) {
-            MarkWord markWord = myLock.getMarkWord();
+            MarkWord markWord = customLock.getMarkWord();
             ObjectMonitor ptrMonitor = markWord.getPtrMonitor();
             // 1、如果已经膨胀完毕（已经生成了内置锁：ObjectMonitor）
             if (ptrMonitor != null) {

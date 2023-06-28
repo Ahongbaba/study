@@ -25,9 +25,9 @@ public class ObjectMonitor {
     /**
      * 重量级锁入口
      */
-    public void enter(MyLock myLock) {
+    public void enter(CustomLock customLock) {
         // 1、CAS修改owner字段为当前线程
-        Thread currentThread = cmpAndChgOwner(myLock);
+        Thread currentThread = cmpAndChgOwner(customLock);
         if (currentThread == null) {
             return;
         }
@@ -48,17 +48,17 @@ public class ObjectMonitor {
         }
 
         // 4、预备入队挂起
-        enterI(myLock);
+        enterI(customLock);
     }
 
     /**
      * 真正开始入队挂起
      *
-     * @param myLock myLock
+     * @param customLock myLock
      */
-    private void enterI(MyLock myLock) {
+    private void enterI(CustomLock customLock) {
         // 自旋抢锁
-        if (tryLock(myLock) > 0) {
+        if (tryLock(customLock) > 0) {
             return;
         }
         // 延迟处理其他逻辑
@@ -68,7 +68,7 @@ public class ObjectMonitor {
             throw new RuntimeException(e);
         }
         // 又自旋10次
-        if (tryLock(myLock) > 0) {
+        if (tryLock(customLock) > 0) {
             return;
         }
 
@@ -80,7 +80,7 @@ public class ObjectMonitor {
                 break;
             } catch (InterruptedException e) {
                 // 又又自旋
-                if (tryLock(myLock) > 0) {
+                if (tryLock(customLock) > 0) {
                     return;
                 }
             }
@@ -89,7 +89,7 @@ public class ObjectMonitor {
         // 真正阻塞
         for (; ; ) {
             // 又又又自旋
-            if (tryLock(myLock) > 0) {
+            if (tryLock(customLock) > 0) {
                 break;
             }
             Unsafe unsafe = MyUnsafe.getUnsafe();
@@ -98,7 +98,7 @@ public class ObjectMonitor {
             unsafe.park(false, 0L);
 
             // 唤醒后立马抢锁
-            if (tryLock(myLock) > 0) {
+            if (tryLock(customLock) > 0) {
                 break;
             }
         }
@@ -107,17 +107,17 @@ public class ObjectMonitor {
     /**
      * 自旋抢锁
      *
-     * @param myLock myLock
+     * @param customLock myLock
      * @return 1=成功 0和-1=失败
      */
-    private int tryLock(MyLock myLock) {
+    private int tryLock(CustomLock customLock) {
         for (int i = 0; i < 10; i++) {
             // 如果有线程还拥有重量级锁，直接退出
             if (owner != null) {
                 return 0;
             }
             // 自旋
-            Thread thread = cmpAndChgOwner(myLock);
+            Thread thread = cmpAndChgOwner(customLock);
             if (thread == null) {
                 // cas获取锁成功
                 return 1;
@@ -127,8 +127,8 @@ public class ObjectMonitor {
         return -1;
     }
 
-    public Thread cmpAndChgOwner(MyLock myLock) {
-        ObjectMonitor objectMonitor = myLock.getMarkWord().getPtrMonitor();
+    public Thread cmpAndChgOwner(CustomLock customLock) {
+        ObjectMonitor objectMonitor = customLock.getMarkWord().getPtrMonitor();
         Field owner;
         try {
             owner = objectMonitor.getClass().getDeclaredField("owner");
@@ -152,9 +152,9 @@ public class ObjectMonitor {
     /**
      * 重量级锁退出
      *
-     * @param myLock myLock
+     * @param customLock myLock
      */
-    public void exit(MyLock myLock) {
+    public void exit(CustomLock customLock) {
         // 流程图里没画这步，判断当前线程和owner是否相等，不等的情况下如果是轻量级锁升级来的则设置owner，否则就是非法释放
         Thread currentThread = Thread.currentThread();
         if (owner != currentThread) {
@@ -182,19 +182,19 @@ public class ObjectMonitor {
         // 从队列里获取一个线程准备唤醒
         ObjectWaiter objectWaiter = cxq.poll();
         if (objectWaiter != null) {
-            exitEpilog(myLock, objectWaiter);
+            exitEpilog(customLock, objectWaiter);
         }
     }
 
     /**
      * 唤醒线程
      *
-     * @param myLock       myLock
+     * @param customLock       myLock
      * @param objectWaiter objectWaiter
      */
-    private void exitEpilog(MyLock myLock, ObjectWaiter objectWaiter) {
+    private void exitEpilog(CustomLock customLock, ObjectWaiter objectWaiter) {
         // 丢弃锁，将owner置为null
-        MarkWord markWord = myLock.getMarkWord();
+        MarkWord markWord = customLock.getMarkWord();
         markWord.getPtrMonitor().setOwner(null);
         // 获取线程唤醒
         Thread thread = objectWaiter.getThread();

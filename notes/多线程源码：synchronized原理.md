@@ -448,4 +448,9 @@ Synchronized的语义底层是通过一个monitor（监视器锁）的对象来�
   * 偏向锁撤销流程图
   
     ![image-20230626204043892](https://gitee.com/ahongbaba/note-picture/raw/master/img/20230626204044.png)
+    
+    
 
+
+
+### 4、java jol分析对象头
