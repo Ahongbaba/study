@@ -262,7 +262,7 @@ synchronized是Java的一个关键字，**是一种互斥锁**。来自官方的
 
 
 
-### 3、synchronized实现原理
+### 3、synchronized重要组成
 
 Synchronized的语义底层是通过一个monitor（监视器锁）的对象来完成。线程访问加锁对象，就是去拥有一个监视器（Monitor）的过程。
 
@@ -274,183 +274,824 @@ Synchronized的语义底层是通过一个monitor（监视器锁）的对象来�
 
 　　3）如果其他线程已经占用了monitor，则该线程进入阻塞状态，直到monitor的进入数为0，再重新尝试获取monitor的所有权。
 
-* **字节码解析**
+#### （1）字节码解析
 
-  * **同步方法**
+* **同步方法**
 
-    方法级的同步是隐式的，无须通过字节码指令来控制，JVM可以从方法常量池的方法表结构中的ACC_SYNCHRONIZED访问标志得知一个方法是否声明为同步方法。
+  方法级的同步是隐式的，无须通过字节码指令来控制，JVM可以从方法常量池的方法表结构中的ACC_SYNCHRONIZED访问标志得知一个方法是否声明为同步方法。
 
-    当方法调用的时，调用指令会检查方法的ACC_SYNCHRONIZED访问标志是否被设置。如果设置了，执行线程就要求先持有monitor对象，然后才能执行方法，最后当方法执行完（无论是正常完成还是非正常完成）时释放monitor对象。
+  当方法调用的时，调用指令会检查方法的ACC_SYNCHRONIZED访问标志是否被设置。如果设置了，执行线程就要求先持有monitor对象，然后才能执行方法，最后当方法执行完（无论是正常完成还是非正常完成）时释放monitor对象。
 
-    在方法执行期间，执行线程持有了管程，其他线程都无法再次获取同一个管程。
+  在方法执行期间，执行线程持有了管程，其他线程都无法再次获取同一个管程。
 
-    *管程是一种概念，任何语言都可以通用。在java中，管程==Monitor*
+  *管程是一种概念，任何语言都可以通用。在java中，管程==Monitor*
 
-  * **同步代码块**
+* **同步代码块**
 
-    同步代码块，synchronized关键字经过编译之后，会在同步代码块前后分别形成monitorenter和monitorexit字节码指令。在执行monitorenter指令的时候，首先尝试获取对象的锁。
+  同步代码块，synchronized关键字经过编译之后，会在同步代码块前后分别形成monitorenter和monitorexit字节码指令。在执行monitorenter指令的时候，首先尝试获取对象的锁。
 
-    如果这个锁没有被锁定或者当前线程已经拥有了那个对象的锁，锁的计数器就加1。在执行monitorexit指令时会将锁的计数器减1，当减为0的时候就释放锁。如果获取对象锁一直失败，那当前线程就要阻塞等待，直到对象锁被另一个线程释放为止。
+  如果这个锁没有被锁定或者当前线程已经拥有了那个对象的锁，锁的计数器就加1。在执行monitorexit指令时会将锁的计数器减1，当减为0的时候就释放锁。如果获取对象锁一直失败，那当前线程就要阻塞等待，直到对象锁被另一个线程释放为止。
 
-* **对象头**
+#### （2）对象头(MarkWord)
 
-  锁的本质：串行来访问共享资源。实际上同步互斥访问（多个线程来争取一个**对象**）
+锁的本质：串行来访问共享资源。实际上同步互斥访问（多个线程来争取一个**对象**）
 
-  new Object()---->对象最终是丢给jvm来管理----》jvm会在对象上加一些管理信息
+new Object()---->对象最终是丢给jvm来管理----》jvm会在对象上加一些管理信息
 
-  jvm包装完之后：
+jvm包装完之后：
 
-  1）**对象头（重点）**
+1）**对象头（重点）**
 
-  2）实例数据
+2）实例数据
 
-  3）填充数据
+3）填充数据
 
+
+
+32位对象头（Markword）：
+
+![image-20210416112302935](https://gitee.com/ahongbaba/note-picture/raw/master/img/20230611205402.png)
+
+64位对象头（Markword）：
+
+![image-20210710192940782](https://gitee.com/ahongbaba/note-picture/raw/master/img/20230611205716.png)
+
+上图是jvm对象头的信息，jdk1.6之前就是用的monitor（操作系统底层的互斥锁），是重量级锁，需要在用户态和内核态之间做切换，性能较差。在jdk1.6之后，synchronized不再直接加上monitor重量级锁，而是从偏向锁->轻量级锁->重量级锁一步步加锁，提升性能。
+
+#### （3）Monitor
+
+无论是synchronized代码块还是synchronized方法，其线程安全的语义实现最终依赖于monitor。
+
+在[HotSpot](https://so.csdn.net/so/search?q=HotSpot&spm=1001.2101.3001.7020)虚拟机中，monitor是由ObjectMonitor实现的。源码由C++实现，位于HotSpot虚拟机源码ObjectMonitor.hpp文件中(src/share/vm/runtime/objectMonitor.hpp)。ObjectMonitor主要数据结构如下：
+
+![image-20230611210159842](https://gitee.com/ahongbaba/note-picture/raw/master/img/20230611210200.png)
+
+三大队列：cxq、entryList、waitSet
+
+- _owner: 初始时为NULL。当有线程占有该monitor时，owner标记为该线程的唯一标识。当线程释放monitor时，owner又恢复为NULL。owner是一个临界资源，JVM是通过CAS操作来保证其线程安全。**owner指向一个线程，被指向的线程就是抢到锁**。owner字段非常繁忙，因为大家都想把自己赋值给它。
+- _cxq: 竞争队列，所有请求锁的线程首先会被放在这个队列中(单向列表)。cxq是一个临界资源，JVM通过CAS原子指令来修改cxq队列。修改前cxq的旧值填入了node的next字段，cxq指向新值(新线程)。因此cxq是一个后进先出的stack（栈）。
+- _EntryList：cxq队列中有资格成为候选资源的线程会被移动到该队列中。（重量级锁退出时会将cxq队列里的线程移动到这里）
+- _WaitSet：因为调用wait方法而被阻塞的线程会被放在该队列中。
+
+![image-20230613211708984](https://gitee.com/ahongbaba/note-picture/raw/master/img/20230613211710.png)
+
+
+
+
+
+### 4、图解锁升级、释放过程
+
+#### （1）锁膨胀(锁升级）
+
+![img](https://gitee.com/ahongbaba/note-picture/raw/master/img/20230614184142.png@f_auto)
+
+锁膨胀是指 synchronized 从无锁升级到偏向锁，再到轻量级锁，最后到重量级锁的过程，它叫锁膨胀也叫锁升级。
+
+JDK 1.6 之前，synchronized 是重量级锁，也就是说 synchronized 在释放和获取锁时都会从用户态转换成内核态，而转换的效率是比较低的。但有了锁膨胀机制之后，synchronized 的状态就多了无锁、偏向锁以及轻量级锁了，这时候在进行并发操作时，大部分的场景都不需要用户态到内核态的转换了，这样就大幅的提升了 synchronized 的性能。
+
+#### （2）重量级锁
+
+重量级锁是jvm的最后一个锁策略，当经历了偏向锁、轻量级锁都无法使用时才会使用重量级锁。
+
+重量级锁的性能很差，**它性能差是由于上下文切换**。当线程挂起（进入blocked状态）时，调用内核函数挂起。当线程唤醒时也会调用内核函数，所以这两个操作就存在用户态->内核态之间的切换。jvm属于用户态，想要调用操作系统函数，就需要切换到内核态。
+
+
+
+线程挂起：park（操作系统指令）--->pthread_cond_wait()--->object.wait()
+
+线程唤醒：unpark（操作系统指令）--->pthread_cond_singal()--->object.notify()
+
+重量级锁性能差的关键就是内核态用户态的切换。所以在JVM源码中，即使已经进入了执行重量级锁的方法，也进行了多次CAS，通过自旋获取monitor，尽量避免线程挂起。
+
+当一系列CAS还是抢不到锁时，执行ObjectWaiter方法，进入cxq队列。cxq队列是一个先进后出的栈结构，线程会尝试入队争抢头部节点，如果争抢失败，就又进行CAS获取锁试试，没抢到就再尝试入队抢头部，循环。
+
+![image-20230613212920826](https://gitee.com/ahongbaba/note-picture/raw/master/img/20230613212921.png)
+
+cxq队列是一个先进后出的栈结构，所以每个线程来的时候会从头节点加入，当多个线程同时获取头节点时，头节点是非常繁忙的。所以入队有可能失败，入队 失败 --> 抢锁 失败 --> 入队 失败 --> ...
+
+
+
+进入到cxq队列之后，就是要执行阻塞挂起操作了，这时又会先CAS获取锁试试（不死心啊），如果获取不到，那就没办法了，只能调用park，挂起。挂起后就阻塞住了，需要等待调用unpark方法。
+
+当前拥有锁的线程释放锁之后，会将owner指向空，此时就会调用unpark方法，重新循环获取锁。
+
+总结：一旦进入重量级锁，线程就会进入队列，一旦进入队列，说明线程已经挂起（进入内核态），后续被唤醒又需要从内核态进入用户态。
+
+对象头（锁所在的对象头）---->MarkWord[ptrObjectMonitor]------>ObjectMonitor
+
+* **重量级锁加锁流程图**
+
+  ![image-20230626213124465](https://gitee.com/ahongbaba/note-picture/raw/master/img/20230626213125.png)
+
+* **重量级锁退出流程图**
+
+  ![image-20230627204531608](https://gitee.com/ahongbaba/note-picture/raw/master/img/20230627204533.png)
+
+#### （3）轻量级锁
+
+真正进入重量级锁之前会有多次CAS，CAS失败的很大部分原因是由于owner的竞争过于激烈，导致CAS失败。只要让竞争不那么激烈，就能让CAS成功的概率提升。这就是轻量级锁。
+
+
+
+![image-20230613220705338](https://gitee.com/ahongbaba/note-picture/raw/master/img/20230613220706.png)
+
+LockRecord------》当前获取到锁的线程栈上面的锁记录
+
+轻量级锁加锁过程：
+
+1）首先，在线程栈中创建一个锁记录（LockRecord）
+
+2）拷贝对象头的markword到当前栈帧中的锁记录中
+
+3）cas尝试将markword中的指针指向当前线程栈中的锁记录，所标记也要改成00，表示此时已经是轻量级锁状态
+
+4）如果更新失败，表示此时竞争激烈，1、需要进行锁膨胀操作 2、重入锁
+
+轻量级锁最终就只有两种情况：
+
+1、加锁成功
+
+2、加锁失败，膨胀成重量级锁
+
+* **轻量级锁加锁流程图**
+
+  第一步is_neutral是判断是否有锁
+
+  ![image-20230626213029057](https://gitee.com/ahongbaba/note-picture/raw/master/img/20230626213029.png)
+
+* **轻量级锁膨胀流程图**
+
+  ![image-20230614200420171](https://gitee.com/ahongbaba/note-picture/raw/master/img/20230614200421.png)
+
+* **轻量级锁释放流程图**
+
+  ![image-20230626212919425](https://gitee.com/ahongbaba/note-picture/raw/master/img/20230626212920.png)
   
-
-  32位对象头（Markword）：
-
-  ![image-20210416112302935](https://gitee.com/ahongbaba/note-picture/raw/master/img/20230611205402.png)
-
-  64位对象头（Markword）：
-
-  ![image-20210710192940782](https://gitee.com/ahongbaba/note-picture/raw/master/img/20230611205716.png)
-
-  上图是jvm对象头的信息，jdk1.6之前就是用的monitor（操作系统底层的互斥锁），是重量级锁，需要在用户态和内核态之间做切换，性能较差。在jdk1.6之后，synchronized不再直接加上monitor重量级锁，而是从偏向锁->轻量级锁->重量级锁一步步加锁，提升性能。
-
-* **Monitor**
-
-  无论是synchronized代码块还是synchronized方法，其线程安全的语义实现最终依赖于monitor。
-
-  在[HotSpot](https://so.csdn.net/so/search?q=HotSpot&spm=1001.2101.3001.7020)虚拟机中，monitor是由ObjectMonitor实现的。源码由C++实现，位于HotSpot虚拟机源码ObjectMonitor.hpp文件中(src/share/vm/runtime/objectMonitor.hpp)。ObjectMonitor主要数据结构如下：
-
-  ![image-20230611210159842](https://gitee.com/ahongbaba/note-picture/raw/master/img/20230611210200.png)
-
-  三大队列：cxq、entryList、waitSet
-
-  - _owner: 初始时为NULL。当有线程占有该monitor时，owner标记为该线程的唯一标识。当线程释放monitor时，owner又恢复为NULL。owner是一个临界资源，JVM是通过CAS操作来保证其线程安全。**owner指向一个线程，被指向的线程就是抢到锁**。owner字段非常繁忙，因为大家都想把自己赋值给它。
-  - _cxq: 竞争队列，所有请求锁的线程首先会被放在这个队列中(单向列表)。cxq是一个临界资源，JVM通过CAS原子指令来修改cxq队列。修改前cxq的旧值填入了node的next字段，cxq指向新值(新线程)。因此cxq是一个后进先出的stack（栈）。
-  - _EntryList：cxq队列中有资格成为候选资源的线程会被移动到该队列中。（重量级锁退出时会将cxq队列里的线程移动到这里）
-  - _WaitSet：因为调用wait方法而被阻塞的线程会被放在该队列中。
-
-  ![image-20230613211708984](https://gitee.com/ahongbaba/note-picture/raw/master/img/20230613211710.png)
-
+  * 上图中cas将head写回对象头，为什么需要cas来撤销，而且会撤销失败？
   
-
-* **锁膨胀**
-
-  ![img](https://gitee.com/ahongbaba/note-picture/raw/master/img/20230614184142.png@f_auto)
-
-  锁膨胀是指 synchronized 从无锁升级到偏向锁，再到轻量级锁，最后到重量级锁的过程，它叫锁膨胀也叫锁升级。
-
-  JDK 1.6 之前，synchronized 是重量级锁，也就是说 synchronized 在释放和获取锁时都会从用户态转换成内核态，而转换的效率是比较低的。但有了锁膨胀机制之后，synchronized 的状态就多了无锁、偏向锁以及轻量级锁了，这时候在进行并发操作时，大部分的场景都不需要用户态到内核态的转换了，这样就大幅的提升了 synchronized 的性能。
-
-* **重量级锁**
-
-  重量级锁是jvm的最后一个锁策略，当经历了偏向锁、轻量级锁都无法使用时才会使用重量级锁。
-
-  重量级锁的性能很差，**它性能差是由于上下文切换**。当线程挂起（进入blocked状态）时，调用内核函数挂起。当线程唤醒时也会调用内核函数，所以这两个操作就存在用户态->内核态之间的切换。jvm属于用户态，想要调用操作系统函数，就需要切换到内核态。
-
+    如果当前锁是轻量级锁，确实只会有一个线程操作，但是此时锁是有可能已经被膨胀为重量级锁的。
   
-
-  线程挂起：park（操作系统指令）--->pthread_cond_wait()--->object.wait()
-
-  线程唤醒：unpark（操作系统指令）--->pthread_cond_singal()--->object.notify()
-
-  重量级锁性能差的关键就是内核态用户态的切换。所以在JVM源码中，即使已经进入了执行重量级锁的方法，也进行了多次CAS，通过自旋获取monitor，尽量避免线程挂起。
-
-  当一系列CAS还是抢不到锁时，执行ObjectWaiter方法，进入cxq队列。cxq队列是一个先进后出的栈结构，线程会尝试入队争抢头部节点，如果争抢失败，就又进行CAS获取锁试试，没抢到就再尝试入队抢头部，循环。
-
-  ![image-20230613212920826](https://gitee.com/ahongbaba/note-picture/raw/master/img/20230613212921.png)
-
-  cxq队列是一个先进后出的栈结构，所以每个线程来的时候会从头节点加入，当多个线程同时获取头节点时，头节点是非常繁忙的。所以入队有可能失败，入队 失败 --> 抢锁 失败 --> 入队 失败 --> ...
-
+    线程t1获取了轻量级锁，markword指向t1所在在栈帧，此时t2也来请求锁，此时拿不到锁，那么就会升 级膨胀为重量级锁，就把markword更新为ObjectMonitor指针。此时t1线程在退出的时候准备将markword还原，那么此时就会失败。t1只能膨胀为重量级锁退出。
   
-
-  进入到cxq队列之后，就是要执行阻塞挂起操作了，这时又会先CAS获取锁试试（不死心啊），如果获取不到，那就没办法了，只能调用park，挂起。挂起后就阻塞住了，需要等待调用unpark方法。
-
-  当前拥有锁的线程释放锁之后，会将owner指向空，此时就会调用unpark方法，重新循环获取锁。
-
-  总结：一旦进入重量级锁，线程就会进入队列，一旦进入队列，说明线程已经挂起（进入内核态），后续被唤醒又需要从内核态进入用户态。
-
-  对象头（锁所在的对象头）---->MarkWord[ptrObjectMonitor]------>ObjectMonitor
-
-  * **重量级锁加锁流程图**
-
-    ![image-20230626213124465](https://gitee.com/ahongbaba/note-picture/raw/master/img/20230626213125.png)
-
-  * 重量级锁退出流程图
-
-    ![image-20230627204531608](https://gitee.com/ahongbaba/note-picture/raw/master/img/20230627204533.png)
-
-* **轻量级锁**
-
-  真正进入重量级锁之前会有多次CAS，CAS失败的很大部分原因是由于owner的竞争过于激烈，导致CAS失败。只要让竞争不那么激烈，就能让CAS成功的概率提升。这就是轻量级锁。
-
-  
-
-  ![image-20230613220705338](https://gitee.com/ahongbaba/note-picture/raw/master/img/20230613220706.png)
-
-  LockRecord------》当前获取到锁的线程栈上面的锁记录
-
-  轻量级锁加锁过程：
-
-  1）首先，在线程栈中创建一个锁记录（LockRecord）
-
-  2）拷贝对象头的markword到当前栈帧中的锁记录中
-
-  3）cas尝试将markword中的指针指向当前线程栈中的锁记录，所标记也要改成00，表示此时已经是轻量级锁状态
-
-  4）如果更新失败，表示此时竞争激烈，1、需要进行锁膨胀操作 2、重入锁
-
-  轻量级锁最终就只有两种情况：
-
-  1、加锁成功
-
-  2、加锁失败，膨胀成重量级锁
-
-  * **轻量级锁加锁流程图**
-
-    第一步is_neutral是判断是否有锁
-
-    ![image-20230626213029057](https://gitee.com/ahongbaba/note-picture/raw/master/img/20230626213029.png)
-
-  * **轻量级锁膨胀流程图**
-
-    ![image-20230614200420171](https://gitee.com/ahongbaba/note-picture/raw/master/img/20230614200421.png)
-
-  * 轻量级锁释放流程图
-
-    ![image-20230626212919425](https://gitee.com/ahongbaba/note-picture/raw/master/img/20230626212920.png)
-    
-    * 上图中cas将head写回对象头，为什么需要cas来撤销，而且会撤销失败？
-    
-      如果当前锁是轻量级锁，确实只会有一个线程操作，但是此时锁是有可能已经被膨胀为重量级锁的。
-    
-      线程t1获取了轻量级锁，markword指向t1所在在栈帧，此时t2也来请求锁，此时拿不到锁，那么就会升 级膨胀为重量级锁，就把markword更新为ObjectMonitor指针。此时t1线程在退出的时候准备将markword还原，那么此时就会失败。t1只能膨胀为重量级锁退出。
-    
-      
-
-* **偏向锁**
-
-  在一定时间段内，有可能只有一个线程需要进入同步代码块，当只有一个线程进入时，就会以偏向锁的形式加锁。偏向锁是不存在竞争的，一旦发生竞争就会升级成轻量级锁。
-
-  在没有实际竞争的情况下，还能够针对部分场景继续优化。如果不仅仅没有实际竞争，自始至终，使用锁的线程都只有一个，那么，维护轻量级锁都是浪费的。**偏向锁的目标是，减少无竞争且只有一个线程使用锁的情况下，使用轻量级锁产生的性能消耗**。轻量级锁每次申请、释放锁都至少需要一次CAS，但偏向锁只有初始化时需要一次CAS。
-
-  “偏向”的意思是，*偏向锁假定将来只有第一个申请锁的线程会使用锁*（不会有任何线程再来申请锁），因此，*只需要在Mark Word中CAS记录线程id（本质上也是更新，但初始值为空），如果记录成功，则偏向锁获取成功*，记录锁状态为偏向锁，*以后当前线程id等于记录的线程id就可以零成本的直接获得锁；否则，说明有其他线程竞争，膨胀为轻量级锁*。
-
-  偏向锁无法使用自旋锁优化，因为一旦有其他线程申请锁，就破坏了偏向锁的假定。
-  
-  * 偏向锁加锁流程图
-  
-    ![image-20230626202028014](https://gitee.com/ahongbaba/note-picture/raw/master/img/20230626202028.png)
-  
-  * 偏向锁撤销流程图
-  
-    ![image-20230626204043892](https://gitee.com/ahongbaba/note-picture/raw/master/img/20230626204044.png)
-    
     
 
+#### （4）偏向锁
+
+在一定时间段内，有可能只有一个线程需要进入同步代码块，当只有一个线程进入时，就会以偏向锁的形式加锁。偏向锁是不存在竞争的，一旦发生竞争就会升级成轻量级锁。
+
+在没有实际竞争的情况下，还能够针对部分场景继续优化。如果不仅仅没有实际竞争，自始至终，使用锁的线程都只有一个，那么，维护轻量级锁都是浪费的。**偏向锁的目标是，减少无竞争且只有一个线程使用锁的情况下，使用轻量级锁产生的性能消耗**。轻量级锁每次申请、释放锁都至少需要一次CAS，但偏向锁只有初始化时需要一次CAS。
+
+“偏向”的意思是，*偏向锁假定将来只有第一个申请锁的线程会使用锁*（不会有任何线程再来申请锁），因此，*只需要在Mark Word中CAS记录线程id（本质上也是更新，但初始值为空），如果记录成功，则偏向锁获取成功*，记录锁状态为偏向锁，*以后当前线程id等于记录的线程id就可以零成本的直接获得锁；否则，说明有其他线程竞争，膨胀为轻量级锁*。
+
+偏向锁无法使用自旋锁优化，因为一旦有其他线程申请锁，就破坏了偏向锁的假定。
+
+* **偏向锁加锁流程图**
+
+  ![image-20230626202028014](https://gitee.com/ahongbaba/note-picture/raw/master/img/20230626202028.png)
+
+* **偏向锁撤销流程图**
+
+  ![image-20230626204043892](https://gitee.com/ahongbaba/note-picture/raw/master/img/20230626204044.png)
+  
+  
+
+### 5、java代码手写锁升级、释放
+
+使用java代码简单实现锁升级、释放的过程，根据本文前面部分的流程图进行关键步骤的实现，很多细节方面的问题无法在java中实现。
+
+通过java手写代码实现这些步骤之后能够加强记忆，如果只是简单看一下不动手写的话很快就会忘记的。
+
+以下贴出部分代码，完整的代码已上传至github：
+
+https://github.com/Ahongbaba/study
+
+package：src/main/java/com/hong/thread/sync
 
 
-### 4、java jol分析对象头
+
+#### （1）自定义sync锁
+
+包含加锁入口、释放锁入口、锁膨胀入口等关键操作
+
+```java
+public class MySynchronized {
+
+    static CustomLock customLock = new CustomLock();
+
+    /**
+     * 是否开启偏向
+     */
+    private boolean useBiasedLocking = true;
+
+    /**
+     * 偏向锁对象
+     */
+    static BiasedLocking biasedLocking = new BiasedLocking();
+
+    static ThreadLocal<LockRecord> threadLocal = ThreadLocal.withInitial(() -> {
+        // 使用内部类初始化
+        MarkWord owner = null;
+        MarkWord markWordClone = null;
+
+        return new LockRecord(markWordClone, owner);
+    });
+
+    /**
+     * 加锁入口
+     */
+    public void monitorEnter() {
+        /**
+         * 锁升级后续实现
+         * 无锁->偏向锁->轻量级锁->重量级锁
+         */
+        if (useBiasedLocking) {
+            // 偏向锁
+            fastEnter();
+        } else {
+            // 轻量级锁
+            slowEnter();
+        }
+    }
+
+    /**
+     * 释放锁入口
+     */
+    public void monitorExit() {
+        MarkWord markWord = customLock.getMarkWord();
+        String biasedLock = markWord.getBiasedLock();
+        String lockFlag = markWord.getLockFlag();
+        long threadId = markWord.getThreadId();
+        Thread currentThread = Thread.currentThread();
+
+        if ("1".equals(biasedLock) && "01".equals(lockFlag)) {
+            // 偏向锁状态
+            if (threadId != currentThread.getId()) {
+                // 释放锁的不是拥有锁的线程，报错
+                throw new RuntimeException("非法释放锁");
+            }
+        } else {
+            // 轻量级锁和重量级锁的释放
+            slowExit(markWord);
+        }
+    }
+
+    /**
+     * 轻量级锁和重量级锁的释放
+     */
+    private void slowExit(MarkWord markWord) {
+        fastExit(markWord);
+    }
+
+    /**
+     * 轻量级锁的释放
+     */
+    private void fastExit(MarkWord markWord) {
+        // 需要将markWord还原：markWord替换（cas替换），lockFlag改成01
+        LockRecord lockRecord = threadLocal.get();
+        // 当前栈帧中的markWord(head),还原到对象头中
+        MarkWord head = lockRecord.getMarkWord();
+        if (head != null) {
+            // cas变更markWord
+            Unsafe unsafe = MyUnsafe.getUnsafe();
+            Field markWordField;
+            try {
+                markWordField = customLock.getClass().getDeclaredField("markWord");
+            } catch (NoSuchFieldException e) {
+                throw new RuntimeException(e);
+            }
+            assert unsafe != null;
+            long offset = unsafe.objectFieldOffset(markWordField);
+            Object objectVolatile = unsafe.getObjectVolatile(customLock, offset);
+            boolean isOk = unsafe.compareAndSwapObject(customLock, offset, objectVolatile, head);
+            if (isOk) {
+                // head = null
+                lockRecord.setMarkWord(null);
+                lockRecord.setOwner(null);
+                markWord.setLockFlag("01");
+                return;
+            }
+            // cas修改失败，轻量级锁膨胀
+            inflateExit();
+        }
+    }
+
+    /**
+     * 偏向锁加锁
+     */
+    private void fastEnter() {
+        if (useBiasedLocking) {
+            boolean isOk = biasedLocking.revokeAndRebias(customLock);
+            if (isOk) {
+                // 偏向锁加锁成功，可以执行代码块了
+                return;
+            }
+        }
+
+        // 偏向锁加锁失败，走轻量级锁
+        slowEnter();
+    }
+
+
+    /**
+     * 轻量级锁加锁
+     */
+    private void slowEnter() {
+        // 这里有很多逻辑，先不写
+
+        // 如果是偏向锁或者无锁状态 lockFlag=01
+        MarkWord markWord = customLock.getMarkWord();
+        String lockFlag = markWord.getLockFlag();
+        if ("01".equals(lockFlag)) {
+            markWord.setThreadId(-1);
+            markWord.setBiasedLock(null);
+            // cas变更lockRecord指针
+            Unsafe unsafe = MyUnsafe.getUnsafe();
+            Field ptrLockRecord;
+            try {
+                assert unsafe != null;
+                ptrLockRecord = unsafe.getClass().getDeclaredField("ptrLockRecord");
+            } catch (NoSuchFieldException e) {
+                throw new RuntimeException(e);
+            }
+            long offset = unsafe.objectFieldOffset(ptrLockRecord);
+            Object currentLockRecord = unsafe.getObjectVolatile(markWord, offset);
+            // 获取当前线程的lockRecord
+            LockRecord lockRecord = threadLocal.get();
+            boolean isOk = unsafe.compareAndSwapObject(markWord, offset, currentLockRecord, lockRecord);
+            if (isOk) {
+                // 成功，设置成轻量级锁
+                MarkWord markWordClone = markWord.clone();
+                lockRecord.setMarkWord(markWordClone);
+                markWord.setLockFlag("00");
+                lockRecord.setOwner(markWord);
+                return;
+            }
+        } else if ("00".equals(lockFlag)) {
+            // 已经是轻量级状态，需要进一步判断是重入还是膨胀
+            markWord.setThreadId(-1);
+            markWord.setBiasedLock(null);
+
+            // 先获取是当前线程中的lockRecord
+            LockRecord lockRecord = threadLocal.get();
+
+            // 再获取markWord中的lockRecord指针
+            LockRecord ptrLockRecord = markWord.getPtrLockRecord();
+
+            // 判断当前线程是否已经拥有锁，重入
+            if (ptrLockRecord != null && (lockRecord == ptrLockRecord)) {
+                return;
+            }
+        }
+
+        // 轻量级锁失败，开始膨胀
+        inflateEnter();
+    }
+
+    /**
+     * 锁膨胀
+     */
+    private void inflateEnter() {
+        ObjectMonitor objectMonitor = inflate();
+        objectMonitor.enter(new CustomLock());
+    }
+
+    /**
+     * 退出时膨胀
+     */
+    private void inflateExit() {
+        ObjectMonitor objectMonitor = inflate();
+        // 重量级锁退出
+        objectMonitor.exit(customLock);
+    }
+
+    /**
+     * 锁膨胀过程
+     *
+     * @return objectMonitor
+     */
+    private ObjectMonitor inflate() {
+        for (; ; ) {
+            MarkWord markWord = customLock.getMarkWord();
+            ObjectMonitor ptrMonitor = markWord.getPtrMonitor();
+            // 1、如果已经膨胀完毕（已经生成了内置锁：ObjectMonitor）
+            if (ptrMonitor != null) {
+                return ptrMonitor;
+            }
+
+            // 2、正在膨胀中
+            String status = markWord.getStatus();
+            if ("inflating".equals(status)) {
+                continue;
+            }
+
+            // 3、当前是轻量级锁
+            LockRecord ptrLockRecord = markWord.getPtrLockRecord();
+            String lockFlag = markWord.getLockFlag();
+            if ("00".equals(lockFlag) && ptrLockRecord != null) {
+                // cas自旋更改markWord状态
+                Unsafe unsafe = MyUnsafe.getUnsafe();
+                Field statusField;
+                try {
+                    statusField = markWord.getClass().getDeclaredField("status");
+                } catch (NoSuchFieldException e) {
+                    throw new RuntimeException(e);
+                }
+                assert unsafe != null;
+                long offset = unsafe.objectFieldOffset(statusField);
+                Object objectVolatile = unsafe.getObjectVolatile(markWord, offset);
+                boolean isOk = unsafe.compareAndSwapObject(markWord, offset, objectVolatile, "inflating");
+                if (isOk) {
+                    // 更新成功
+                    ObjectMonitor objectMonitor = new ObjectMonitor();
+                    markWord.setPtrMonitor(objectMonitor);
+                    markWord.setLockFlag("10");
+                    markWord.setLockRecord(null);
+
+                    return objectMonitor;
+                }
+            }
+        }
+    }
+}
+```
+
+#### （2）自定义monitor
+
+```java
+@Data
+public class ObjectMonitor {
+    // 线程重入次数
+    private int recursions = 0;
+
+    // 当前获取到锁的线程，加volatile是为了拿到最新值，因为这个值是被多线程修改的
+    private volatile Thread owner = null;
+
+    // 多线程竞争锁进入时的单向链表，实际上是一个栈，先进后出
+    private LinkedBlockingQueue<ObjectWaiter> cxq = new LinkedBlockingQueue<>();
+    // 所有在等待获取锁的线程的对象，也就是说如果有线程处于等待获取锁的状态的时候，将被挂入这个队列。
+    private LinkedBlockingQueue<ObjectWaiter> entryList;
+    // 主要存放所有wait的线程的对象，也就是说如果有线程处于wait状态，将被挂入这个队列
+    private LinkedBlockingQueue<ObjectWaiter> waitSet;
+
+    /**
+     * 重量级锁入口
+     */
+    public void enter(CustomLock customLock) {
+        // 1、CAS修改owner字段为当前线程
+        Thread currentThread = cmpAndChgOwner(customLock);
+        if (currentThread == null) {
+            return;
+        }
+
+        // 2、如果之前的owner指向当前线程。那么就表示是重入，recursions++
+        if (currentThread == Thread.currentThread()) {
+            recursions++;
+            return;
+        }
+
+        // 3、从轻量级锁膨胀
+        LockRecord lockRecord = MySynchronized.threadLocal.get();
+        MarkWord head = lockRecord.getMarkWord();
+        if (head != null) {
+            recursions = 1;
+            owner = Thread.currentThread();
+            return;
+        }
+
+        // 4、预备入队挂起
+        enterI(customLock);
+    }
+
+    /**
+     * 真正开始入队挂起
+     *
+     * @param customLock myLock
+     */
+    private void enterI(CustomLock customLock) {
+        // 自旋抢锁
+        if (tryLock(customLock) > 0) {
+            return;
+        }
+        // 延迟处理其他逻辑
+        try {
+            Thread.sleep(10);
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
+        // 又自旋10次
+        if (tryLock(customLock) > 0) {
+            return;
+        }
+
+        // 自旋全部失败，入队挂起
+        ObjectWaiter objectWaiter = new ObjectWaiter(Thread.currentThread());
+        for (; ; ) {
+            try {
+                cxq.put(objectWaiter);
+                break;
+            } catch (InterruptedException e) {
+                // 又又自旋
+                if (tryLock(customLock) > 0) {
+                    return;
+                }
+            }
+        }
+
+        // 真正阻塞
+        for (; ; ) {
+            // 又又又自旋
+            if (tryLock(customLock) > 0) {
+                break;
+            }
+            Unsafe unsafe = MyUnsafe.getUnsafe();
+            assert unsafe != null;
+            // 挂起进入内核态，挂起后线程卡在此处，等待唤醒
+            unsafe.park(false, 0L);
+
+            // 唤醒后立马抢锁
+            if (tryLock(customLock) > 0) {
+                break;
+            }
+        }
+    }
+
+    /**
+     * 自旋抢锁
+     *
+     * @param customLock myLock
+     * @return 1=成功 0和-1=失败
+     */
+    private int tryLock(CustomLock customLock) {
+        for (int i = 0; i < 10; i++) {
+            // 如果有线程还拥有重量级锁，直接退出
+            if (owner != null) {
+                return 0;
+            }
+            // 自旋
+            Thread thread = cmpAndChgOwner(customLock);
+            if (thread == null) {
+                // cas获取锁成功
+                return 1;
+            }
+        }
+
+        return -1;
+    }
+
+    public Thread cmpAndChgOwner(CustomLock customLock) {
+        ObjectMonitor objectMonitor = customLock.getMarkWord().getPtrMonitor();
+        Field owner;
+        try {
+            owner = objectMonitor.getClass().getDeclaredField("owner");
+        } catch (NoSuchFieldException e) {
+            throw new RuntimeException(e);
+        }
+        Unsafe unsafe = MyUnsafe.getUnsafe();
+        assert unsafe != null;
+        long offset = unsafe.objectFieldOffset(owner);
+
+        Thread currentThread = Thread.currentThread();
+        boolean isOk = unsafe.compareAndSwapObject(objectMonitor, offset, null, currentThread);
+
+        if (isOk) {
+            return null;
+        }
+
+        return objectMonitor.getOwner();
+    }
+
+    /**
+     * 重量级锁退出
+     *
+     * @param customLock myLock
+     */
+    public void exit(CustomLock customLock) {
+        // 流程图里没画这步，判断当前线程和owner是否相等，不等的情况下如果是轻量级锁升级来的则设置owner，否则就是非法释放
+        Thread currentThread = Thread.currentThread();
+        if (owner != currentThread) {
+            LockRecord lockRecord = MySynchronized.threadLocal.get();
+            MarkWord head = lockRecord.getMarkWord();
+            if (head != null) {
+                // 从轻量级锁升级而来
+                owner = currentThread;
+                recursions = 0;
+            } else {
+                // 非法释放
+                throw new RuntimeException("不是锁的拥有者，无权释放该锁");
+            }
+        }
+
+        // 如果recursions不为0，说明重入了，自减
+        if (recursions != 0) {
+            recursions--;
+            return;
+        }
+
+        // 开始选择唤醒模式，此处只写QMode==2
+        // 触发屏障，让各个线程工作内存可见
+        MyUnsafe.getUnsafe();
+        // 从队列里获取一个线程准备唤醒
+        ObjectWaiter objectWaiter = cxq.poll();
+        if (objectWaiter != null) {
+            exitEpilog(customLock, objectWaiter);
+        }
+    }
+
+    /**
+     * 唤醒线程
+     *
+     * @param customLock       myLock
+     * @param objectWaiter objectWaiter
+     */
+    private void exitEpilog(CustomLock customLock, ObjectWaiter objectWaiter) {
+        // 丢弃锁，将owner置为null
+        MarkWord markWord = customLock.getMarkWord();
+        markWord.getPtrMonitor().setOwner(null);
+        // 获取线程唤醒
+        Thread thread = objectWaiter.getThread();
+        Unsafe unsafe = MyUnsafe.getUnsafe();
+        assert unsafe != null;
+        unsafe.unpark(thread);
+        markWord.setPtrMonitor(null);
+    }
+}
+```
+
+#### （3）自定义对象头(MarkWord)
+
+```java
+/**
+ * 对象头
+ */
+@Data
+public class MarkWord implements Cloneable {
+
+    /**
+     * 锁标记位
+     * 01：无锁或者偏向锁
+     * 00：轻量级锁
+     * 10：重量级锁
+     * 11：GC标记
+     */
+    private String lockFlag = "01";
+
+    /**
+     * 是否偏向
+     */
+    private String biasedLock = "1";
+
+    private String epoch;
+
+    private volatile long threadId = -1;
+
+    /**
+     * 指向轻量级锁的指针
+     */
+    private volatile LockRecord ptrLockRecord;
+
+    /**
+     * 分代年龄
+     */
+    private String age;
+
+
+    /**
+     * 指向轻量级锁的指针
+     */
+    private volatile LockRecord lockRecord;
+
+    /**
+     * 指向重量级锁monitor
+     */
+    private ObjectMonitor ptrMonitor = null;
+
+    /**
+     * 锁膨胀状态
+     */
+    private volatile String status = null;
+
+    @Override
+    public MarkWord clone() {
+        try {
+            // TODO: copy mutable state here, so the clone can't change the internals of the original
+            return (MarkWord) super.clone();
+        } catch (CloneNotSupportedException e) {
+            throw new AssertionError();
+        }
+    }
+}
+```
+
+#### （4）自定义轻量级锁记录
+
+```java
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class LockRecord {
+
+    // head
+    private MarkWord markWord;
+
+    private MarkWord owner;
+}
+```
+
+#### （5）自定义偏向锁加锁、撤销
+
+```java
+/**
+ * 偏向锁对象，用于判断是否可用偏向锁
+ */
+public class BiasedLocking {
+
+    /**
+     * 偏向锁加锁
+     *
+     * @param customLock myLock
+     * @return 成功/失败
+     */
+    public boolean revokeAndRebias(CustomLock customLock) {
+        MarkWord markWord = customLock.getMarkWord();
+        long threadId = markWord.getThreadId();
+        // 获取偏向锁标记
+        String biasedLock = markWord.getBiasedLock();
+        // 获取锁标记
+        String lockFlag = markWord.getLockFlag();
+
+        Field markWordThreadId;
+        try {
+            markWordThreadId = markWord.getClass().getDeclaredField("threadId");
+        } catch (NoSuchFieldException e) {
+            throw new RuntimeException(e);
+        }
+        Unsafe unsafe = MyUnsafe.getUnsafe();
+        assert unsafe != null;
+        long offset = unsafe.objectFieldOffset(markWordThreadId);
+        long longVolatile = unsafe.getLongVolatile(markWord, offset);
+        long currentThreadId = Thread.currentThread().getId();
+
+        // 此时表示可偏向，但是还没有偏向任何线程。这里就是流程图里的判断null。
+        if (threadId == -1 && "1".equals(biasedLock) && "01".equals(lockFlag)) {
+            // 执行cas操作，将自己的线程id写入markword中
+            boolean isOk = unsafe.compareAndSwapLong(markWord, offset, longVolatile, currentThreadId);
+            if (isOk) {
+                return true;
+            }
+        }
+
+        // 此时表示可偏向，并且已经偏向某个线程
+        if (threadId != -1 && "1".equals(biasedLock) && "01".equals(lockFlag)) {
+            // 判断偏向的是否是当前线程
+            if (threadId == currentThreadId) {
+                return true;
+            }
+            // 已偏向的不是当前线程，撤销偏向锁
+            // 这里需要判断线程是否已经执行完同步代码块，在java层面很难判断
+            return revokeBiased(customLock);
+        }
+
+        return false;
+    }
+
+    /**
+     * 撤销偏向锁
+     * 难点：
+     * 1、安全点检查（stw检查）
+     * 2、是否已经离开了同步代码块（判断的是拥有偏向锁的线程是否离开）
+     *
+     * @return true=撤销成无锁/false=升级成轻量级锁
+     */
+    private boolean revokeBiased(CustomLock customLock) {
+        boolean isAlive = false;
+        MarkWord markWord = customLock.getMarkWord();
+        long threadId = markWord.getThreadId();
+
+        ThreadGroup threadGroup = Thread.currentThread().getThreadGroup();
+        int activeCount = threadGroup.activeCount();
+        Thread[] threads = new Thread[activeCount];
+        threadGroup.enumerate(threads);
+        for (Thread thread : threads) {
+            if (thread.getId() == threadId) {
+                // 表示拥有这把锁的线程依然存活
+                isAlive = true;
+                break;
+            }
+        }
+
+        // 判断线程是否离开同步代码块（java里很难做，简单点判断线程是否存活）
+        if (isAlive) {
+            // 存活，设置成无锁状态
+            markWord.setBiasedLock("0");
+            markWord.setLockFlag("01");
+            markWord.setThreadId(-1);
+
+            return true;
+        }
+
+        // 走轻量级锁
+        return false;
+    }
+}
+```
+
