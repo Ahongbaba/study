@@ -15,43 +15,48 @@ public class ProducerConsumer1 {
 
     public static void main(String[] args) {
         ProducerConsumer1 producerConsumer1 = new ProducerConsumer1();
-        // 生产者线程
-        new Thread(() -> {
-            while (true) {
-                synchronized (OBJECT) {
-                    if (PRODUCT_COUNT < 10) {
-                        producerConsumer1.producer();
-                        OBJECT.notifyAll();
-                        break;
-                    } else {
-                        try {
-                            OBJECT.wait();
-                        } catch (InterruptedException e) {
-                            throw new RuntimeException(e);
-                        }
-                    }
-                }
-            }
-        }, "producer").start();
 
-        // 消费者线程
-        new Thread(() -> {
-            while (true) {
-                synchronized (OBJECT) {
-                    if (PRODUCT_COUNT > 0) {
-                        producerConsumer1.consumer();
-                        OBJECT.notifyAll();
-                        break;
-                    } else {
-                        try {
-                            OBJECT.wait();
-                        } catch (InterruptedException e) {
-                            throw new RuntimeException(e);
+        for (int i = 0; i < 100; i++) {
+            // 生产者线程
+            new Thread(() -> {
+                while (true) {
+                    synchronized (OBJECT) {
+                        if (PRODUCT_COUNT < 10) {
+                            producerConsumer1.producer();
+                            OBJECT.notifyAll();
+                            break;
+                        } else {
+                            try {
+                                OBJECT.wait();
+                            } catch (InterruptedException e) {
+                                throw new RuntimeException(e);
+                            }
                         }
                     }
                 }
-            }
-        }, "consumer").start();
+            }).start();
+        }
+
+        for (int i = 0; i < 100; i++) {
+            // 消费者线程
+            new Thread(() -> {
+                while (true) {
+                    synchronized (OBJECT) {
+                        if (PRODUCT_COUNT > 0) {
+                            producerConsumer1.consumer();
+                            OBJECT.notifyAll();
+                            break;
+                        } else {
+                            try {
+                                OBJECT.wait();
+                            } catch (InterruptedException e) {
+                                throw new RuntimeException(e);
+                            }
+                        }
+                    }
+                }
+            }).start();
+        }
 
     }
 
@@ -60,6 +65,11 @@ public class ProducerConsumer1 {
     }
 
     public void consumer() {
+        try {
+            Thread.sleep(2000);
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
         System.out.println(Thread.currentThread().getName() + "-消费了->" + PRODUCT_COUNT--);
     }
 }
