@@ -1,4 +1,4 @@
-package com.hong.thread;
+package com.hong.study.thread;
 
 public class Sync1 {
 

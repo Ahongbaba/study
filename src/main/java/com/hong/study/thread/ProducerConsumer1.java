@@ -1,7 +1,4 @@
-package com.hong.thread;
-
-import java.util.ArrayList;
-import java.util.List;
+package com.hong.study.thread;
 
 /**
  * 生产者消费者演示wait notify机制

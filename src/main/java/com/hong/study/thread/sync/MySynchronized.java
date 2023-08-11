@@ -1,6 +1,6 @@
-package com.hong.thread.sync;
+package com.hong.study.thread.sync;
 
-import com.hong.thread.MyUnsafe;
+import com.hong.study.thread.MyUnsafe;
 import sun.misc.Unsafe;
 
 import java.lang.reflect.Field;

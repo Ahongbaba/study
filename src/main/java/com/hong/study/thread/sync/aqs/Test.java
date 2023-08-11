@@ -1,6 +1,4 @@
-package com.hong.thread.sync.aqs;
-
-import com.hong.thread.sync.MySynchronized;
+package com.hong.study.thread.sync.aqs;
 
 public class Test {
 

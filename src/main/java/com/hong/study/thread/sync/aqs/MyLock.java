@@ -1,4 +1,4 @@
-package com.hong.thread.sync.aqs;
+package com.hong.study.thread.sync.aqs;
 
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.AbstractQueuedSynchronizer;

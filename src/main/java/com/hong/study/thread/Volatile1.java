@@ -1,6 +1,4 @@
-package com.hong.thread;
-
-import java.io.File;
+package com.hong.study.thread;
 
 /**
  * @Author hong
