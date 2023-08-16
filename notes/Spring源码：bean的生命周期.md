@@ -12,7 +12,7 @@ Spring bean的生命周期可以说是Spring中非常核心的知识点，本文
 
 当我们自己创建对象时十分简单，只需要new即可。然而Spring为我们创建对象时就比较复杂，因为Spring作为一个框架，必须具备通用性、扩展性等重要特性，这也导致它对于bean的创建有很多逻辑判断和优先级等考虑。
 
-Spring实现扩展性的两个非常重要的类：BeanFactoryPostProcessor)、BeanPostProcessor，简称BFPP和BPP，在《Spring源码：容器启动初期》文章中已经详细讲解BFPP的使用过程和BPP的注册过程，然而真正使用BPP就在初始化bean的前后。
+Spring实现扩展性的两个非常重要的类：BeanFactoryPostProcessor、BeanPostProcessor，简称BFPP和BPP，在《Spring源码：容器启动初期》文章中已经详细讲解BFPP的使用过程和BPP的注册过程，然而真正使用BPP就在初始化bean的前后。
 
 ## 三、正式流程
 
@@ -1003,4 +1003,23 @@ bean 实例的初始化 -->initializeBean
 BeanPostProcessor 的各种扩展应用 -->postProcessBeforeInitialization、postProcessAfterInitialization
 
 由于篇幅有限，文章中还有一些重要细节没有具体讲解，比如getSingleton中的三级缓存解决循环依赖问题、注解自动依赖注入的详细介绍。这些将在后续的文章中具体分析。
+
+
+
+**补充：**
+
+Spring中的Bean生命周期是指一个Bean从被创建、初始化，到被使用，再到被销毁的整个过程。这个过程可以通过一系列的回调方法来描述。以下是Spring Bean的详细生命周期：
+
+1. **实例化（Instantiation）：** 当Spring容器启动时，它会根据配置信息创建Bean的实例。这通常涉及到调用Bean的构造函数。
+2. **设置属性（Populate Properties）：** 在实例化后，Spring容器将通过依赖注入（DI）或其他配置方式为Bean设置它的属性和依赖。
+3. **BeanNameAware 的 setBeanName() 调用：** 如果Bean实现了`BeanNameAware`接口，Spring容器会调用其`setBeanName()`方法，将Bean的名称传递给它。
+4. **BeanFactoryAware 和 ApplicationContextAware 的 setBeanFactory() 或 setApplicationContext() 调用：** 如果Bean实现了`BeanFactoryAware`或`ApplicationContextAware`接口，Spring容器会将BeanFactory或ApplicationContext传递给它。
+5. **BeanPostProcessors 的前置初始化（Post-Processing Before Initialization）：** Spring容器会调用在上一步创建的Bean实例上所有已注册的`BeanPostProcessor`的`postProcessBeforeInitialization()`方法。这允许开发者在Bean初始化之前进行一些自定义处理。
+6. **InitializingBean 的 afterPropertiesSet() 调用：** 如果Bean实现了`InitializingBean`接口，Spring容器会调用其`afterPropertiesSet()`方法，允许开发者在Bean属性设置后执行自定义初始化逻辑。
+7. **自定义初始化方法（init-method）：** 如果在Bean的配置中指定了自定义初始化方法（通过`init-method`属性），Spring容器会在上述步骤后调用这个方法。
+8. **BeanPostProcessors 的后置初始化（Post-Processing After Initialization）：** Spring容器会调用在Bean实例上所有已注册的`BeanPostProcessor`的`postProcessAfterInitialization()`方法。这允许开发者在Bean初始化之后进行一些自定义处理。
+9. **Bean使用：** 此时Bean已经初始化完毕，可以被应用程序使用。
+10. **销毁：** 当应用程序关闭时，Spring容器会销毁所有的Bean。如果Bean实现了`DisposableBean`接口，Spring容器会调用其`destroy()`方法。同样，如果在Bean的配置中指定了自定义销毁方法（通过`destroy-method`属性），Spring容器会调用这个方法。
+
+总结起来，Spring Bean的生命周期涵盖了实例化、属性设置、初始化、使用和销毁等阶段，通过BeanPostProcessors、InitializingBean和自定义方法来实现自定义逻辑。理解Bean的生命周期有助于在不同的阶段插入自定义的逻辑以满足应用程序的需求。
 
